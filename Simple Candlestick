@@ -1,0 +1,551 @@
+//@version=6
+indicator("CandleStick Patterns v1", overlay=true, max_labels_count=500)
+//Morning Star Pattern
+//Tweezer
+//Pin Bar or Kangaroo tail
+//Inside Bar
+//Engulfing
+//RSI Bar
+//MACD + RSI
+//CRT AMD Indicator
+
+// ───────────────────────────────────────────────────────────────────────────
+// INPUTS
+// ───────────────────────────────────────────────────────────────────────────
+grp1 = "Display"
+showBullish   = input.bool(true,  "Show Bullish Signals", group=grp1)
+showBearish   = input.bool(true,  "Show Bearish Signals", group=grp1)
+showInsideBar = input.bool(true,  "Show Inside Bars", group=grp1)
+showEngulfing = input.bool(true,  "Show Engulfing Candles", group=grp1)
+showMACDRSI = input.bool(true,  "Show MACD + RSI Combo", group=grp1)
+showRSIBars = input.bool(true,  "Show RSI Bars", group=grp1)
+showCRT = input.bool(true,  "Show CRT Entry", group=grp1)
+markerStyle   = input.string("Label", "Marker Style", options=["Label", "Shape", "Both"], group=grp1)
+bullColor     = input.color(color.new(color.green, 0), "Bullish Color", group=grp1)
+bearColor     = input.color(color.new(color.red, 0),   "Bearish Color", group=grp1)
+rsiLength     = input.int(defval=14, title="RSI Length")
+rsiMALength   = input.int(defval=14, title="RSI MA Length")
+overBought    = input.int(defval=70, title="RSI Overbought")
+overSold      = input.int(defval=30, title="RSI Oversold")
+insideBarColor = input.color(color.new(color.orange, 0), "Bullish Color", group=grp1)
+//Tweezer and Kangroo Tail
+
+//────────────────────────────────────────────
+// Tweezer Settings
+//────────────────────────────────────────────
+enable_tweezer = input.bool(true, "Enable Tweezer")
+
+maxrate = input.float(150.0, "Max Rate % Between Wick Sizes") / 100.0
+leveldiff = input.float(20.0, "Max Difference in Level %") / 100.0
+
+prd = input.int(5, "Highest/Lowest Period")
+apartprd = input.int(12, "Max Distance between Tweezers", minval=1)
+
+colup = input.color(color.lime, "Color", inline="col")
+coldn = input.color(color.red, "", inline="col")
+// enable_tweezer = input(defval = true, title = "Enable Tweezer")
+// maxrate = input(defval = 150., title = "Max Rate % Between Wick Sizes") / 100.
+// leveldiff = input(defval = 20., title = "Max Difference in level %") / 100.
+// prd =input(defval = 5, title = "Highest/Lowest Period")
+// apartprd = input.int(defval = 12, title = "Max Distance between Tweezers", minval = 1)
+// colup = input(defval = color.lime, title = "Color", inline = "col")
+// coldn = input(defval = color.red, title = "", inline = "col")
+
+//Morning Star -----------------------------------------------------------------------------------------------------------------------------
+grp2 = "Alerts"
+useAlerts     = input.bool(true, "Enable Alerts", group=grp2)
+
+hma144 = ta.hma(close, 144) 
+
+isPriceAtHMA = (hma144 < high or hma144 > low) or (hma144[1] < high[1] or hma144[1] > low[1]) or (hma144[2] < high[2] or hma144[2] > low[2]) 
+
+bullMorningStar = (low[1] < low[2] and low[1] < low) and (high[1] < high[2] and high[1] < high) and close > high[1] and close > high[2]
+bearMorningStar = (high[1] > high[2] and high[1] > high) and (low[1] > low[2] and low[1] > low) and close < low[1] and close < low[2]
+
+bullishPattern = bullMorningStar and isPriceAtHMA
+
+bearishPattern = bearMorningStar and isPriceAtHMA
+
+// ───────────────────────────────────────────────────────────────────────────
+// PATTERN LOGIC
+// ───────────────────────────────────────────────────────────────────────────
+// Bullish: candle 2 makes the lowest low of the three, candle 3 closes above candle 1's close
+// bullishPattern = low2 < low1 and low2 < low3 and close3 > high2
+// bullishPattern = (low[1] < low[2] and low[1] < low) and () and close > high[2]
+
+// Bearish (mirror): candle 2 makes the highest high of the three, candle 3 closes below candle 1's close
+// bearishPattern = high[1] > high[2] and high[1] > high and close < low[2]
+
+// ───────────────────────────────────────────────────────────────────────────
+// PLOTTING
+// ───────────────────────────────────────────────────────────────────────────
+if bullishPattern and showBullish and (markerStyle == "Label" or markerStyle == "Both")
+    label.new(bar_index, low, "MS", style=label.style_label_up, color=bullColor, textcolor=color.white, size=size.small, yloc=yloc.belowbar)
+
+if bearishPattern and showBearish
+    if markerStyle == "Label" or markerStyle == "Both"
+        label.new(bar_index, high, "MS", style=label.style_label_down, color=bearColor, textcolor=color.white, size=size.small, yloc=yloc.abovebar)
+
+plotshape(bullishPattern and showBullish and (markerStyle == "Shape" or markerStyle == "Both"), title="Bullish Marker", style=shape.triangleup, location=location.belowbar, color=bullColor, size=size.small)
+plotshape(bearishPattern and showBearish and (markerStyle == "Shape" or markerStyle == "Both"), title="Bearish Marker", style=shape.triangledown, location=location.abovebar, color=bearColor, size=size.small)
+//---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+//Tweezer and Kangaroo Tail
+topwick = high - math.max(close, open)
+bottomwick = math.min(close, open) - low
+body = math.abs(close - open)
+
+ishb = ta.highestbars(high, prd) == 0
+islb = ta.lowestbars(low, prd) == 0
+
+//────────────────────────────────────────────
+// Top Tweezer
+//────────────────────────────────────────────
+aparttweezers_top(len) =>
+    int ret = 0
+
+    if topwick > 0
+        for x = 1 to apartprd
+
+            if nz(topwick[x]) == 0
+                break
+
+            wickRatio = math.max(topwick, topwick[x]) /
+                 math.min(topwick, topwick[x])
+
+            levelDifference =
+                 math.abs(high - high[x])
+
+            maxWick =
+                 math.max(topwick, topwick[x])
+
+            if wickRatio <= maxrate and
+                 levelDifference < maxWick * leveldiff and
+                 ishb[x]
+
+                ret := x
+                break
+
+            else
+                if high[x] >= high
+                    ret := 0
+                    break
+
+    ret
+
+//────────────────────────────────────────────
+// Bottom Tweezer
+//────────────────────────────────────────────
+aparttweezers_bottom(len) =>
+    int ret = 0
+
+    if bottomwick > 0
+        for x = 1 to apartprd
+
+            if nz(bottomwick[x]) == 0
+                break
+
+            wickRatio = math.max(bottomwick, bottomwick[x]) /
+                 math.min(bottomwick, bottomwick[x])
+
+            levelDifference =
+                 math.abs(low - low[x])
+
+            maxWick =
+                 math.max(bottomwick, bottomwick[x])
+
+            if wickRatio <= maxrate and
+                 levelDifference < maxWick * leveldiff and
+                 islb[x]
+
+                ret := x
+                break
+
+            else
+                if low[x] <= low
+                    ret := 0
+                    break
+
+    ret
+
+//────────────────────────────────────────────
+// Tweezer Signals
+//────────────────────────────────────────────
+top_tweezer = enable_tweezer and aparttweezers_top(apartprd) != 0
+
+bottom_tweezer = enable_tweezer and aparttweezers_bottom(apartprd) != 0
+
+plotshape(
+     top_tweezer,
+     title="Bearish Tweezer",
+     text="T",
+     style=shape.labeldown,
+     location=location.abovebar,
+     color=coldn,
+     textcolor=color.black)
+
+plotshape(
+     bottom_tweezer,
+     title="Bullish Tweezer",
+     text="T",
+     style=shape.labelup,
+     location=location.belowbar,
+     color=colup,
+     textcolor=color.black)
+
+//────────────────────────────────────────────
+// Kangaroo Tail Settings
+//────────────────────────────────────────────
+enable_kangaroo_tail =
+     input.bool(true, "Enable Kangaroo Tail")
+
+prd1 =
+     input.int(20, "Period for Room",
+     minval=2,
+     maxval=50)
+
+prd2 =
+     input.int(8, "Minimum Period for Room",
+     minval=2,
+     maxval=50)
+
+atrmult =
+     input.float(5.0, "ATR Factor for Room Height",
+     minval=2,
+     maxval=30)
+
+wickmult =
+     input.float(3.0, "Wick/Body Rate",
+     minval=1)
+
+wickmultavg =
+     input.float(2.0, "Wick/Average Wick Rate",
+     minval=1)
+
+//────────────────────────────────────────────
+// ZigZag Logic
+//────────────────────────────────────────────
+float ph =
+     ta.highestbars(high, prd1) == 0
+     ? high
+     : na
+
+float pl =
+     ta.lowestbars(low, prd1) == 0
+     ? low
+     : na
+
+var int dir = 0
+
+dir :=
+     not na(ph) and na(pl)
+     ? 1
+     : not na(pl) and na(ph)
+     ? -1
+     : dir
+
+var zigzag = array.new_float(4, 0.0)
+
+//────────────────────────────────────────────
+// Add ZigZag Point
+//────────────────────────────────────────────
+add_to_zigzag(float value, int bindex) =>
+    array.unshift(zigzag, value)
+    array.unshift(zigzag, float(bindex))
+    array.pop(zigzag)
+    array.pop(zigzag)
+    float result = na
+    result
+
+//────────────────────────────────────────────
+// Update ZigZag
+//────────────────────────────────────────────
+update_zigzag(float value, int bindex) =>
+    if array.size(zigzag) == 0
+        array.unshift(zigzag, value)
+        array.unshift(zigzag, float(bindex))
+    else
+        bool shouldUpdate =
+             (dir == 1 and value > array.get(zigzag, 0)) or
+             (dir == -1 and value < array.get(zigzag, 0))
+
+        if shouldUpdate
+            array.set(zigzag, 0, value)
+            array.set(zigzag, 1, float(bindex))
+
+    float result = na
+    result
+//────────────────────────────────────────────
+// ZigZag Direction Change
+//────────────────────────────────────────────
+dirchanged = ta.change(dir) != 0
+
+if not na(ph) or not na(pl)
+
+    if dirchanged
+        add_to_zigzag(
+             dir == 1 ? ph : pl,
+             bar_index)
+    else
+        update_zigzag(
+             dir == 1 ? ph : pl,
+             bar_index)
+
+//────────────────────────────────────────────
+// Average Top Wick
+//────────────────────────────────────────────
+averagetopwicksize =
+     ta.sma(topwick, 50)
+
+//────────────────────────────────────────────
+// Kangaroo Tail – Bearish
+//────────────────────────────────────────────
+topkangaroo =
+     enable_kangaroo_tail and
+     dir == 1 and
+     topwick >= body * wickmult and
+     close <= low + (high - low) / 3 and
+     open <= low + (high - low) / 3 and
+     open < high[1] and
+     open > low[1] and
+     close < high[1] and
+     close > low[1] and
+     topwick >= wickmultavg * averagetopwicksize and
+     body > 0 and
+     not na(ph) and
+     array.get(zigzag, 0) == high and
+     array.get(zigzag, 0) - array.get(zigzag, 2) >
+         ta.atr(50) * atrmult and
+     array.get(zigzag, 1) - array.get(zigzag, 3) >
+         prd2
+
+//────────────────────────────────────────────
+// Kangaroo Tail – Bullish
+//────────────────────────────────────────────
+bottomkangaroo =
+     enable_kangaroo_tail and
+     dir == -1 and
+     bottomwick >= body * wickmult and
+     close >= high - (high - low) / 3 and
+     open >= high - (high - low) / 3 and
+     open < high[1] and
+     open > low[1] and
+     close < high[1] and
+     close > low[1] and
+     bottomwick >= wickmultavg * averagetopwicksize and
+     body > 0 and
+     not na(pl) and
+     array.get(zigzag, 0) == low and
+     array.get(zigzag, 2) - array.get(zigzag, 0) >
+         ta.atr(50) * atrmult and
+     array.get(zigzag, 1) - array.get(zigzag, 3) >
+         prd2
+
+//────────────────────────────────────────────
+// Plot Kangaroo Tails
+//────────────────────────────────────────────
+plotshape(
+     topkangaroo,
+     title="Bearish Kangaroo Tail",
+     text="K",
+     style=shape.labeldown,
+     location=location.abovebar,
+     color=coldn,
+     textcolor=color.black)
+
+plotshape(
+     bottomkangaroo,
+     title="Bullish Kangaroo Tail",
+     text="K",
+     style=shape.labelup,
+     location=location.belowbar,
+     color=colup,
+     textcolor=color.black)
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+// Inside Bars --------------------------------------------------------------------------------------------------------------------------------------------------------
+
+//---------------------------------------------------------
+// Mother Candle
+//---------------------------------------------------------
+motherHigh  = high[1]
+motherLow   = low[1]
+motherOpen  = open[1]
+motherClose = close[1]
+
+//Type	Definition
+//IB1   =>	Child high/low touches Mother high/low
+//IB2   =>	Child is completely inside Mother range
+//IB3   =>	Child expands beyond Mother range while containing Mother body
+//IB4   =>	Mother Close = Child Open
+
+isInsideCandle = showInsideBar and high[1] >= high and low[1] <= low  
+
+//---------------------------------------------------------
+// Type 1
+// Child candle touches Mother High or Mother Low
+//---------------------------------------------------------
+type1 = isInsideCandle and high <= motherHigh and low >= motherLow and (high == motherHigh or low == motherLow)
+
+//---------------------------------------------------------
+// Type 2
+// Child candle is completely inside Mother Candle
+// and does NOT touch either boundary
+//---------------------------------------------------------
+type2 = isInsideCandle and high < motherHigh and low > motherLow
+//---------------------------------------------------------
+// Type 3
+// Mother Candle BODY is contained within Child Candle
+// and Child Candle extends outside Mother Candle range
+//---------------------------------------------------------
+motherBodyHigh = math.max(motherOpen, motherClose)
+motherBodyLow  = math.min(motherOpen, motherClose)
+
+type3 = isInsideCandle and high >= motherBodyHigh and low <= motherBodyLow and (high > motherHigh or low < motherLow)
+
+//---------------------------------------------------------
+// Type 4
+// Mother Candle CLOSE = Child Candle OPEN
+//---------------------------------------------------------
+type4 = isInsideCandle and close[1] == open
+
+//---------------------------------------------------------
+// Plot
+//---------------------------------------------------------
+
+// barcolor(
+//      type4 ? color.orange :
+//      type1 ? color.orange :
+//      type2 ? color.orange :
+//      type3 ? color.orange :
+//      na)
+
+//---------------------------------------------------------
+// Labels
+//---------------------------------------------------------
+barcolor(isInsideCandle ? insideBarColor : na )
+plotshape(
+     type1,
+     title="Type 1 Inside Bar",
+     style=shape.labeldown,
+     location=location.abovebar,
+     color=color.yellow,
+     text="IB1",
+     textcolor=color.black,
+     size=size.tiny)
+
+plotshape(
+     type2,
+     title="Type 2 Inside Bar",
+     style=shape.labeldown,
+     location=location.abovebar,
+     color=color.blue,
+     text="IB2",
+     textcolor=color.white,
+     size=size.tiny)
+
+plotshape(
+     type3,
+     title="Type 3 Inside Bar",
+     style=shape.labeldown,
+     location=location.abovebar,
+     color=color.purple,
+     text="IB3",
+     textcolor=color.white,
+     size=size.tiny)
+
+plotshape(
+     type4,
+     title="Type 4 Inside Bar",
+     style=shape.labeldown,
+     location=location.abovebar,
+     color=color.orange,
+     text="IB4",
+     textcolor=color.black,
+     size=size.tiny)
+
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+// RSI Bars ------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+up = ta.rma(math.max(ta.change(close), 0), rsiLength)
+down = ta.rma(-math.min(ta.change(close), 0), rsiLength)
+rsi = down == 0 ? 100 : up == 0 ? 0 : 100 - (100 / (1 + up / down))
+
+//coloring method below
+isup() => rsi > overBought
+isdown() => rsi < overSold
+barcolor(showRSIBars and isup() ? color.green : showRSIBars and isdown() ? color.red : na )
+//------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+//Engulfing Candles ------------------------------------------------------------------------------------------------------------------------------------------------------------
+isEngulfing = showEngulfing and high >= high[1] and low <= low[1]
+barcolor(isEngulfing ? color.yellow : na )  
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+// MACD + RSI
+[macdLine,signalLine,hist] = ta.macd(close, 12, 26, 9)
+rsiMA = ta.ema(rsi, 14)
+isMACDRSIBullish = rsi > rsiMA and macdLine > signalLine
+isMACDRSIBearish = rsi < rsiMA and macdLine < signalLine
+barcolor(showMACDRSI and isMACDRSIBullish ? color.olive : showMACDRSI and isMACDRSIBearish ? color.maroon : na )
+
+//CRT AMD Indicator
+openBarPrevious = open[1]
+closeBarPrevious = close[1]
+highBarPrevious = high[1]
+lowBarPrevious = low[1]
+openBarCurrent = open
+closeBarCurrent = close
+highBarCurrent = high
+lowBarCurrent = low
+
+crtsweephigh = barstate.isconfirmed and highBarPrevious < highBarCurrent and lowBarPrevious < lowBarCurrent and closeBarCurrent < highBarPrevious 
+crtsweeplow = barstate.isconfirmed and lowBarPrevious > lowBarCurrent and highBarPrevious > highBarCurrent and closeBarCurrent > lowBarPrevious
+
+//plot triangle on CRT SWEEP
+plotshape(
+     showCRT and barstate.isconfirmed and crtsweeplow,
+     title="CRT",
+     style=shape.labelup,
+     location=location.belowbar,
+     color=color.orange,
+     text="CRT",
+     textcolor=color.black,
+     size=size.tiny)
+
+plotshape(
+     showCRT and barstate.isconfirmed and crtsweephigh,
+     title="CRT",
+     style=shape.labeldown,
+     location=location.abovebar,
+     color=color.orange,
+     text="CRT",
+     textcolor=color.black,
+     size=size.tiny)
+
+// ───────────────────────────────────────────────────────────────────────────
+// ALERTS
+// ───────────────────────────────────────────────────────────────────────────
+if useAlerts and bullishPattern
+    alert("Bullish 3-Candle Pattern detected on " + syminfo.ticker + " (" + timeframe.period + ")", alert.freq_once_per_bar_close)
+
+if useAlerts and bearishPattern
+    alert("Bearish 3-Candle Pattern detected on " + syminfo.ticker + " (" + timeframe.period + ")", alert.freq_once_per_bar_close)
+
+opportunitySpotted = bullishPattern or bearishPattern
+alertcondition(bullishPattern, title="Bullish 3-Candle Pattern", message="Bullish 3-Candle Pattern detected on {{ticker}} ({{interval}})")
+alertcondition(bearishPattern, title="Bearish 3-Candle Pattern", message="Bearish 3-Candle Pattern detected on {{ticker}} ({{interval}})")
+alertcondition(opportunitySpotted, title= "Opp Spotted", message="Bull/Bear on {{ticker}} ({{interval}}")
+
+alertcondition(topkangaroo, title='Kangaroo Tail Bearish', message='Kangaroo Tail Bearish')
+alertcondition(bottomkangaroo, title='Kangaroo Tail Bullish', message='Kangaroo Tail Bullish')
+alertcondition(top_tweezer, title='Tweezers Bearish', message='Tweezers Bearish')
+alertcondition(bottom_tweezer, title='Tweezers Bullish', message='Tweezers Bullish')
+alertcondition(type1,title="Type 1 Inside Bar",message="Type 1 Inside Bar detected")
+alertcondition(type2,title="Type 2 Inside Bar",message="Type 2 Inside Bar detected")
+alertcondition(type3,title="Type 3 Inside Bar",message="Type 3 Inside Bar detected")
+alertcondition(type4,title="Type 4 Inside Bar",message="Type 4 Inside Bar detected")
+alertcondition(crtsweephigh, title = "Sweep High", message = "[CurrencyPair] [TimeFrame], crtsweephigh")
+alertcondition(crtsweeplow, title = "Sweep Low", message = "[CurrencyPair] [TimeFrame], crtsweeplow")
