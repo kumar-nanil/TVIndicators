@@ -1,0 +1,178 @@
+//@version=5
+indicator("FVG Detector - Breakout", overlay=true, max_boxes_count=500)
+
+// Input settings
+showBullishFVG = input.bool(true, "Show Bullish FVG", group="Display Settings")
+showBearishFVG = input.bool(true, "Show Bearish FVG", group="Display Settings")
+fvgLookback = input.int(50, "Maximum FVG Boxes to Display", minval=1, maxval=500, group="Display Settings")
+showCloseMarkers = input.bool(true, "Show Bullish/Bearish Close Markers", group="Display Settings")
+showBreakoutMarkers = input.bool(true, "Show Breakout Markers", group="Display Settings")
+colYellow = input.color(color.new(color.purple, 0), "FVG Bounce")
+
+// Colors
+bullishColor = input.color(color.new(color.green, 85), "Bullish FVG Color", group="Colors")
+bearishColor = input.color(color.new(color.red, 85), "Bearish FVG Color", group="Colors")
+
+// Arrays to store FVG boxes and their properties
+var box[] bullishFVGs = array.new_box()
+var box[] bearishFVGs = array.new_box()
+var bool[] bullishFilled = array.new_bool()
+var bool[] bearishFilled = array.new_bool()
+var int[] bullishCreationBar = array.new_int()
+var int[] bearishCreationBar = array.new_int()
+
+// Variables to track if current candle touches FVG and closes favorably
+var bool touchedBullishFVGAndClosedBullish = false
+var bool touchedBearishFVGAndClosedBearish = false
+
+// Variables to track the touching candle's high/low for next bar breakout check
+var float bearishTouchCandleHigh = na
+var float bullishTouchCandleLow = na
+var bool checkForBearishBreakout = false
+var bool checkForBullishBreakout = false
+
+// Variables to track breakouts
+var bool bullishBreakout = false
+var bool bearishBreakout = false
+
+// Detect Bullish FVG
+isBullishFVG = low > high[2]
+
+if isBullishFVG and showBullishFVG
+    fvgBox = box.new(
+         left = bar_index - 2,
+         top = low,
+         right = bar_index,
+         bottom = high[2],
+         border_color = color.new(color.green, 100),
+         bgcolor = bullishColor,
+         extend = extend.right
+     )
+    array.push(bullishFVGs, fvgBox)
+    array.push(bullishFilled, false)
+    array.push(bullishCreationBar, bar_index)
+    
+    if array.size(bullishFVGs) > fvgLookback
+        oldBox = array.shift(bullishFVGs)
+        array.shift(bullishFilled)
+        array.shift(bullishCreationBar)
+        box.delete(oldBox)
+
+// Detect Bearish FVG
+isBearishFVG = high < low[2]
+
+if isBearishFVG and showBearishFVG
+    fvgBox = box.new(
+         left = bar_index - 2,
+         top = low[2],
+         right = bar_index,
+         bottom = high,
+         border_color = color.new(color.red, 100),
+         bgcolor = bearishColor,
+         extend = extend.right
+     )
+    array.push(bearishFVGs, fvgBox)
+    array.push(bearishFilled, false)
+    array.push(bearishCreationBar, bar_index)
+    
+    if array.size(bearishFVGs) > fvgLookback
+        oldBox = array.shift(bearishFVGs)
+        array.shift(bearishFilled)
+        array.shift(bearishCreationBar)
+        box.delete(oldBox)
+
+// Reset markers for current bar
+touchedBullishFVGAndClosedBullish := false
+touchedBearishFVGAndClosedBearish := false
+bullishBreakout := false
+bearishBreakout := false
+
+// Check for breakouts on the bar AFTER the touching candle
+// LIME circle (bullish touch) -> check if next candle breaks BELOW the touching candle's LOW
+if checkForBullishBreakout and not na(bullishTouchCandleLow)
+    if low < bullishTouchCandleLow
+        bullishBreakout := true
+    checkForBullishBreakout := false
+
+// ORANGE circle (bearish touch) -> check if next candle breaks ABOVE the touching candle's HIGH
+if checkForBearishBreakout and not na(bearishTouchCandleHigh)
+    if high > bearishTouchCandleHigh
+        bearishBreakout := true
+    checkForBearishBreakout := false
+
+// Update bullish FVG boxes - only check AFTER the creation bar
+if array.size(bullishFVGs) > 0
+    for i = 0 to array.size(bullishFVGs) - 1
+        isFilled = array.get(bullishFilled, i)
+        
+        if not isFilled
+            fvgBox = array.get(bullishFVGs, i)
+            creationBar = array.get(bullishCreationBar, i)
+            
+            // Only check for fills on bars AFTER the FVG was created
+            if bar_index > creationBar
+                fvgTop = box.get_top(fvgBox)
+                fvgBottom = box.get_bottom(fvgBox)
+                
+                // Check if current candle touches the gap
+                if low <= fvgTop and high >= fvgBottom
+                    box.set_right(fvgBox, bar_index)
+                    box.set_extend(fvgBox, extend.none)
+                    array.set(bullishFilled, i, true)
+                    
+                    // Check if candle closed bullish (close > open)
+                    if close > open and close > fvgTop
+                        touchedBullishFVGAndClosedBullish := true
+                        // Store the LOW of this touching candle
+                        bullishTouchCandleLow := low
+                        // Set flag to check next candle for breakout
+                        checkForBullishBreakout := true
+
+// Update bearish FVG boxes - only check AFTER the creation bar
+if array.size(bearishFVGs) > 0
+    for i = 0 to array.size(bearishFVGs) - 1
+        isFilled = array.get(bearishFilled, i)
+        
+        if not isFilled
+            fvgBox = array.get(bearishFVGs, i)
+            creationBar = array.get(bearishCreationBar, i)
+            
+            // Only check for fills on bars AFTER the FVG was created
+            if bar_index > creationBar
+                fvgTop = box.get_top(fvgBox)
+                fvgBottom = box.get_bottom(fvgBox)
+                
+                // Check if current candle touches the gap
+                if high >= fvgBottom and low <= fvgTop
+                    box.set_right(fvgBox, bar_index)
+                    box.set_extend(fvgBox, extend.none)
+                    array.set(bearishFilled, i, true)
+                    
+                    // Check if candle closed bearish (close < open)
+                    if close < open and close < fvgBottom
+                        touchedBearishFVGAndClosedBearish := true
+                        // Store the HIGH of this touching candle
+                        bearishTouchCandleHigh := high
+                        // Set flag to check next candle for breakout
+                        checkForBearishBreakout := true
+
+opportunitySpotted = touchedBullishFVGAndClosedBullish or touchedBearishFVGAndClosedBearish
+
+candleColor = touchedBullishFVGAndClosedBullish or touchedBearishFVGAndClosedBearish ? colYellow : na
+
+barcolor(candleColor)
+
+// Plot FVG creation signals
+// plotshape(isBullishFVG and showBullishFVG, "Bullish FVG", shape.triangleup, location.belowbar, color.green, size=size.tiny)
+// plotshape(isBearishFVG and showBearishFVG, "Bearish FVG", shape.triangledown, location.abovebar, color.red, size=size.tiny)
+
+// Plot markers for candles that touch FVG and close favorably (lime/orange circles)
+plotshape(touchedBullishFVGAndClosedBullish and showCloseMarkers, "Touched Bullish FVG - Closed Bullish", shape.cross, location.belowbar, color.new(color.aqua, 0), size=size.small)
+plotshape(touchedBearishFVGAndClosedBearish and showCloseMarkers, "Touched Bearish FVG - Closed Bearish", shape.cross, location.abovebar, color.new(color.maroon, 0), size=size.small)
+
+// Alert conditions
+// alertcondition(isBullishFVG, "Bullish FVG Detected", "Bullish Fair Value Gap detected!")
+// alertcondition(isBearishFVG, "Bearish FVG Detected", "Bearish Fair Value Gap detected!")
+alertcondition(touchedBullishFVGAndClosedBullish, "Bullish Close on FVG Touch", "Candle touched bullish FVG and closed bullish!")
+alertcondition(touchedBearishFVGAndClosedBearish, "Bearish Close on FVG Touch", "Candle touched bearish FVG and closed bearish!")
+alertcondition(opportunitySpotted, "Opportunity Spotted", "Bull or Bear")
